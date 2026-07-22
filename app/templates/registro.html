@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Registro - EcoWatt{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100 my-8">
+    <h2 class="text-2xl font-bold text-gray-800 text-center mb-2">Crear Cuenta en EcoWatt</h2>
+    <p class="text-xs text-gray-500 text-center mb-6">Registra tus datos para gestionar tu consumo de energía.</p>
+
+    <div id="alerta-registro" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+    <form id="form-registro" class="space-y-4">
+        <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre Completo</label>
+            <input type="text" id="nombre" required placeholder="Ej: Carlos Pérez"
+                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre de Usuario (Username)</label>
+            <input type="text" id="username" required placeholder="Ej: cperez26"
+                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Correo Electrónico</label>
+            <input type="email" id="email" required placeholder="correo@ejemplo.com"
+                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Teléfono</label>
+                <input type="tel" id="telefono" required placeholder="3001234567"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Dirección</label>
+                <input type="text" id="direccion" required placeholder="Calle 10 # 5-20"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Contraseña</label>
+            <input type="password" id="password" required placeholder="••••••••"
+                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            <p class="text-[10px] text-gray-400 mt-1">Mínimo 8 caracteres y al menos 1 carácter especial (@, #, $, %, etc.).</p>
+        </div>
+
+        <button type="submit" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg hover:bg-emerald-700 transition">
+            Registrarse
+        </button>
+    </form>
+
+    <div class="mt-6 border-t border-gray-100 pt-4 text-center">
+        <p class="text-xs text-gray-500">¿Ya tienes cuenta? 
+            <a href="/login" class="text-emerald-600 font-semibold hover:underline">Inicia Sesión</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('form-registro').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const alerta = document.getElementById('alerta-registro');
+        alerta.classList.add('hidden');
+
+        const payload = {
+            nombre: document.getElementById('nombre').value.trim(),
+            username: document.getElementById('username').value.trim(),
+            email: document.getElementById('email').value.trim(),
+            telefono: document.getElementById('telefono').value.trim(),
+            direccion: document.getElementById('direccion').value.trim(),
+            password: document.getElementById('password').value
+        };
+
+        try {
+            const res = await fetch('/api/auth/registro', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                alerta.className = "mb-4 p-3 rounded-lg text-sm bg-emerald-100 text-emerald-800";
+                alerta.innerText = "¡Registro exitoso! Redirigiendo al inicio de sesión...";
+                alerta.classList.remove('hidden');
+                setTimeout(() => window.location.href = '/login', 1500);
+            } else {
+                throw new Error(data.error || 'Error al procesar el registro');
+            }
+        } catch (err) {
+            alerta.className = "mb-4 p-3 rounded-lg text-sm bg-red-100 text-red-800";
+            alerta.innerText = err.message;
+            alerta.classList.remove('hidden');
+        }
+    });
+</script>
+{% endblock %}

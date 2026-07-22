@@ -2,12 +2,18 @@ from flask import Blueprint, render_template
 from flask import Blueprint, jsonify, request
 from app.database import db
 from datetime import datetime
+import re
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask import render_template, request, jsonify, session, redirect, url_for
 
 main = Blueprint('main', __name__)
 
 @main.route('/')
 def dashboard():
+    if 'user_id' not in session:
+        return redirect(url_for('main.vista_login'))
     return render_template('dashboard.html')
+
     status_db = "Desconectado"
     if db is not None:
         try:
@@ -22,60 +28,226 @@ def dashboard():
         "database": status_db
     })
 
-# ==========================================
-# 1. RUTAS PARA CONFIGURAR LA TARIFA (kWh)
-# ==========================================
+# --- VISTAS DE AUTENTICACIÓN ---
+@main.route('/registro')
+def vista_registro():
+    return render_template('registro.html')
 
-@main.route('/api/tarifa', methods=['POST'])
-def guardar_tarifa():
-    """Registra o actualiza el precio del kWh para estrato 3"""
+@main.route('/login')
+def vista_login():
+    return render_template('login.html')
+
+@main.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('main.vista_login'))
+
+# --- ENDPOINTS API DE AUTENTICACIÓN ---
+@main.route('/api/auth/registro', methods=['POST'])
+def api_registro():
     try:
-        data = request.get_json()
-        tarifa_kwh = float(data.get('tarifa_kwh'))
-        
-        doc = {
-            "tarifa_kwh": tarifa_kwh,
-            "estrato": 3,
-            "fecha_actualizacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        data = request.get_json() or {}
+        nombre = data.get('nombre', '').strip()
+        username = data.get('username', '').strip().lower()
+        email = data.get('email', '').strip().lower()
+        telefono = data.get('telefono', '').strip()
+        direccion = data.get('direccion', '').strip()
+        password = data.get('password', '')
+
+        # 1. Validaciones básicas
+        if not all([nombre, username, email, telefono, direccion, password]):
+            return jsonify({"error": "Todos los campos son obligatorios."}), 400
+
+        # 2. Validación de contraseña (mínimo 8 caracteres y al menos 1 carácter especial)
+        pattern_especial = r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|`~]'
+        if len(password) < 8 or not re.search(pattern_especial, password):
+            return jsonify({
+                "error": "La contraseña debe tener al menos 8 caracteres y contener al menos un carácter especial (!@#$%...)."
+            }), 400
+
+        # 3. Verificar si el usuario o email ya existen en MongoDB
+        if db.usuarios.find_one({"$or": [{"email": email}, {"username": username}]}):
+            return jsonify({"error": "El correo o el nombre de usuario ya se encuentran registrados."}), 400
+
+        # 4. Crear usuario con hash de contraseña
+        nuevo_usuario = {
+            "nombre": nombre,
+            "username": username,
+            "email": email,
+            "telefono": telefono,
+            "direccion": direccion,
+            "password_hash": generate_password_hash(password),
+            "creado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        
-        # Guardamos la tarifa activa (reemplazando la previa o insertando nueva)
-        db.tarifas.replace_one({"estrato": 3}, doc, upsert=True)
-        
-        return jsonify({"message": "Tarifa guardada exitosamente", "data": doc}), 201
+
+        db.usuarios.insert_one(nuevo_usuario)
+        return jsonify({"message": "Usuario registrado exitosamente."}), 201
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": str(e)}), 500
 
-@main.route('/api/tarifa', methods=['GET'])
-def obtener_tarifa():
-    """Obtiene la tarifa vigente"""
-    tarifa = db.tarifas.find_one({"estrato": 3}, {"_id": 0})
-    if tarifa:
-        return jsonify(tarifa), 200
-    return jsonify({"message": "No hay tarifa registrada"}), 404
+# Vista de recuperación
+@main.route('/recuperar')
+def vista_recuperar():
+    return render_template('recuperar.html')
 
-# ==========================================
-# 2. RUTAS PARA LECTURAS DEL CONTADOR
-# ==========================================
+# Endpoint API para solicitar recuperación por correo
 
-@main.route('/api/lectura', methods=['POST'])
-def registrar_lectura():
-    """Registra una lectura diaria y calcula el consumo respecto a la fecha anterior"""
+@main.route('/api/auth/recuperar', methods=['POST'])
+def api_recuperar_password():
     try:
-        data = request.get_json()
-        lectura_actual = float(data.get('lectura_kwh'))
+        data = request.get_json() or {}
+        email = data.get('email', '').strip().lower()
+
+        if not email:
+            return jsonify({"error": "Ingresa tu correo electrónico."}), 400
+
+        usuario = db.usuarios.find_one({"email": email})
+
+        # Por seguridad no revelamos si el correo existe o no, pero si existe mostramos su usuario
+        if usuario:
+            # Aquí se integrará el envío de correo SMTP con Flask-Mail
+            return jsonify({
+                "message": f"Si el correo existe, enviamos un enlace de recuperación. Tu nombre de usuario registrado es: '{usuario['username']}'."
+            }), 200
+        else:
+            return jsonify({
+                "message": "Si el correo existe en nuestro sistema, hemos enviado las instrucciones."
+            }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@main.route('/api/auth/login', methods=['POST'])
+def api_login():
+    try:
+        data = request.get_json() or {}
+        login_id = data.get('login_id', '').strip().lower()
+        password = data.get('password', '')
+
+        if not login_id or not password:
+            return jsonify({"error": "Por favor ingresa usuario/correo y contraseña."}), 400
+
+        # Buscar por email o username
+        usuario = db.usuarios.find_one({"$or": [{"email": login_id}, {"username": login_id}]})
+
+        if not usuario or not check_password_hash(usuario['password_hash'], password):
+            return jsonify({"error": "Credenciales incorrectas. Verifica tus datos."}), 400
+
+        # Guardar datos esenciales en la sesión
+        session['user_id'] = str(usuario['_id'])
+        session['user_nombre'] = usuario['nombre']
+
+        return jsonify({"message": "Inicio de sesión exitoso."}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# RUTAS DE GESTIÓN DE TARIFAS DINÁMICAS
+# ==========================================
+
+@main.route('/api/tarifas', methods=['POST'])
+def guardar_tarifa():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    try:
+        data = request.get_json() or {}
+        estrato = int(data.get('estrato', 3))
+        operador = data.get('operador', 'Afinia').strip()
+        tarifa_kwh = float(data.get('tarifa_kwh', 0))
+        periodo = data.get('periodo', datetime.now().strftime("%Y-%m")) # Formato 'YYYY-MM'
+
+        if tarifa_kwh <= 0:
+            return jsonify({"error": "Ingresa una tarifa válida mayor a 0 COP."}), 400
+
+        doc_tarifa = {
+            "estrato": estrato,
+            "operador": operador,
+            "tarifa_kwh": tarifa_kwh,
+            "periodo": periodo,
+            "actualizado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # Guardar en la colección de tarifas históricas
+        db.tarifas_historicas.replace_one(
+            {"estrato": estrato, "operador": operador, "periodo": periodo},
+            doc_tarifa,
+            upsert=True
+        )
+
+        # También actualizamos la tarifa vigente por defecto
+        db.tarifas.replace_one(
+            {"estrato": estrato},
+            {"estrato": estrato, "operador": operador, "tarifa_kwh": tarifa_kwh},
+            upsert=True
+        )
+
+        return jsonify({"message": "Tarifa configurada exitosamente.", "tarifa": doc_tarifa}), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@main.route('/api/tarifas', methods=['GET'])
+def obtener_tarifa_actual():
+    try:
+        estrato = int(request.args.get('estrato', 3))
+        operador = request.args.get('operador', 'Afinia')
+        periodo_actual = datetime.now().strftime("%Y-%m")
+
+        # Buscar en tarifas históricas del mes actual
+        tarifa_doc = db.tarifas_historicas.find_one({
+            "estrato": estrato,
+            "operador": operador,
+            "periodo": periodo_actual
+        })
+
+        # Si no hay histórico para este mes, buscar la última configurada
+        if not tarifa_doc:
+            tarifa_doc = db.tarifas.find_one({"estrato": estrato})
+
+        tarifa_kwh = tarifa_doc['tarifa_kwh'] if tarifa_doc else 850.0 # Tarifa base por defecto (COP)
+
+        return jsonify({
+            "estrato": estrato,
+            "operador": operador,
+            "periodo": periodo_actual,
+            "tarifa_kwh": tarifa_kwh
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==========================================
+# RUTAS API DE LECTURAS (FILTRADAS POR USUARIO)
+# ==========================================
+
+@main.route('/api/lecturas', methods=['POST'])
+def registrar_lectura():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado. Inicia sesión."}), 401
+
+    try:
+        data = request.get_json() or {}
+        lectura_actual = float(data.get('lectura_kwh', 0))
         fecha_str = data.get('fecha', datetime.now().strftime("%Y-%m-%d"))
+        usuario_id = session['user_id']
 
-        # 1. Obtener la tarifa configurada para estrato 3
+        # 1. Obtener la tarifa configurada
         tarifa_doc = db.tarifas.find_one({"estrato": 3})
-        tarifa_vigente = tarifa_doc['tarifa_kwh'] if tarifa_doc else 0.0
+        tarifa_vigente = tarifa_doc['tarifa_kwh'] if tarifa_doc else 850.0  # Valor base COP/kWh
 
-        # 2. Buscar la lectura con fecha INFERIOR o IGUAL más cercana a la fecha ingresada
+        # 2. Buscar la lectura anterior del MISMO usuario
         lectura_anterior = db.lecturas.find_one(
-            {"fecha": {"$lt": fecha_str}},
+            {
+                "usuario_id": usuario_id,
+                "fecha": {"$lt": fecha_str}
+            },
             sort=[("fecha", -1)]
         )
-        
+
         consumo_dia = 0.0
         if lectura_anterior and 'lectura_kwh' in lectura_anterior:
             consumo_dia = max(0.0, lectura_actual - lectura_anterior['lectura_kwh'])
@@ -83,6 +255,7 @@ def registrar_lectura():
         costo_dia = round(consumo_dia * tarifa_vigente, 2)
 
         doc = {
+            "usuario_id": usuario_id,  # <-- Vinculación clave al usuario
             "fecha": fecha_str,
             "lectura_kwh": lectura_actual,
             "consumo_dia_kwh": round(consumo_dia, 2),
@@ -91,78 +264,90 @@ def registrar_lectura():
             "creado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        # Actualizamos si ya existe registro en esa fecha o insertamos uno nuevo
-        db.lecturas.replace_one({"fecha": fecha_str}, doc, upsert=True)
-        
+        # Actualizar o insertar según la fecha Y el usuario
+        db.lecturas.replace_one(
+            {"usuario_id": usuario_id, "fecha": fecha_str}, 
+            doc, 
+            upsert=True
+        )
+
         doc.pop('_id', None)
-        return jsonify({"message": "Lectura registrada o actualizada con éxito", "data": doc}), 201
+        return jsonify({"message": "Lectura registrada con éxito", "data": doc}), 201
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return jsonify({"error": str(e)}), 500
+
 
 @main.route('/api/lecturas', methods=['GET'])
-def listar_lecturas():
-    """Obtiene el historial de todas las lecturas"""
-    lecturas = list(db.lecturas.find({}, {"_id": 0}).sort("fecha", -1))
-    return jsonify({"total": len(lecturas), "lecturas": lecturas}), 200
+def obtener_lecturas():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
 
-# ==========================================
-# 3. REPORTES Y COMPARATIVAS MENSUALES
-# ==========================================
+    try:
+        usuario_id = session['user_id']
+        # Consultar SOLO las lecturas del usuario activo
+        lecturas = list(db.lecturas.find({"usuario_id": usuario_id}, {"_id": 0}).sort("fecha", -1))
+        return jsonify({"lecturas": lecturas}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @main.route('/api/reporte/mensual', methods=['GET'])
 def reporte_mensual():
-    """Genera un resumen acumulado de todos los meses y la comparativa entre ellos"""
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
     try:
-        # Pipeline de agregación de MongoDB para agrupar lecturas por mes (YYYY-MM)
+        usuario_id = session['user_id']
+        
+        # Agregación en MongoDB filtrando por usuario_id
         pipeline = [
+            {"$match": {"usuario_id": usuario_id}},
             {
                 "$project": {
-                    "mes": {"$substr": ["$fecha", 0, 7]},  # Extrae 'YYYY-MM' de 'YYYY-MM-DD'
-                    "consumo_dia_kwh": 1,
-                    "costo_dia_cop": 1
+                    "mes": {"$substr": ["$fecha", 0, 7]},
+                    "consumo_dia_kwh": "$consumo_dia_kwh",
+                    "costo_dia_cop": "$costo_dia_cop"
                 }
             },
             {
                 "$group": {
                     "_id": "$mes",
-                    "total_kwh": {"$sum": "$consumo_dia_kwh"},
-                    "total_cop": {"$sum": "$costo_dia_cop"},
+                    "total_consumo_kwh": {"$sum": "$consumo_dia_kwh"},
+                    "total_costo_cop": {"$sum": "$costo_dia_cop"},
                     "dias_registrados": {"$sum": 1}
                 }
             },
-            {"$sort": {"_id": -1}}  # Meses más recientes primero
+            {"$sort": {"_id": -1}}
         ]
 
-        resumen_meses = list(db.lecturas.aggregate(pipeline))
-
-        # Formateamos y calculamos la variación porcentual entre meses
+        reportes_db = list(db.lecturas.aggregate(pipeline))
         reporte = []
-        for i, mes in enumerate(resumen_meses):
-            mes_actual_kwh = mes['total_kwh']
-            variacion_porcentual = None
-            mensaje_comparativo = "Sin mes anterior para comparar"
 
-            # Si existe un mes anterior en el historial, calculamos la diferencia %
-            if i + 1 < len(resumen_meses):
-                mes_anterior_kwh = resumen_meses[i + 1]['total_kwh']
+        for i, doc in enumerate(reportes_db):
+            total_kwh = round(doc['total_consumo_kwh'], 2)
+            total_cop = round(doc['total_costo_cop'], 2)
+            
+            variacion_pct = None
+            mensaje_comparativo = "Sin datos de mes anterior para comparar"
+
+            if i + 1 < len(reportes_db):
+                mes_anterior_kwh = reportes_db[i + 1]['total_consumo_kwh']
                 if mes_anterior_kwh > 0:
-                    diferencia = mes_actual_kwh - mes_anterior_kwh
-                    variacion_porcentual = round((diferencia / mes_anterior_kwh) * 100, 2)
-                    
-                    if variacion_porcentual > 0:
-                        mensaje_comparativo = f"Aumento del {variacion_porcentual}% respecto al mes anterior"
-                    elif variacion_porcentual < 0:
-                        mensaje_comparativo = f"Reducción del {abs(variacion_porcentual)}% respecto al mes anterior"
+                    variacion_pct = round(((total_kwh - mes_anterior_kwh) / mes_anterior_kwh) * 100, 2)
+                    if variacion_pct > 0:
+                        mensaje_comparativo = f"Aumento del {variacion_pct}% respecto al mes anterior"
+                    elif variacion_pct < 0:
+                        mensaje_comparativo = f"Reducción del {abs(variacion_pct)}% respecto al mes anterior"
                     else:
                         mensaje_comparativo = "Consumo idéntico al mes anterior"
 
             reporte.append({
-                "mes": mes['_id'],
-                "total_consumo_kwh": round(mes_actual_kwh, 2),
-                "total_costo_cop": round(mes['total_cop'], 2),
-                "dias_registrados": mes['dias_registrados'],
-                "variacion_vs_mes_anterior_pct": variacion_porcentual,
+                "mes": doc['_id'],
+                "total_consumo_kwh": total_kwh,
+                "total_costo_cop": total_cop,
+                "dias_registrados": doc['dias_registrados'],
+                "variacion_vs_mes_anterior_pct": variacion_pct,
                 "analisis": mensaje_comparativo
             })
 

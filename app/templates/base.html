@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}EcoWatt - Control de Energía{% endblock %}</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js CDN para gráficos -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100 font-sans antialiased text-gray-800">
@@ -14,11 +12,33 @@
     <!-- Navegación -->
     <nav class="bg-emerald-600 text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-            <div class="flex items-center space-x-2">
+            <a href="/" class="flex items-center space-x-2">
                 <span class="text-2xl">⚡</span>
                 <h1 class="text-xl font-bold tracking-wide">EcoWatt</h1>
+            </a>
+
+            <!-- Si hay usuario autenticado -->
+            {% if session.get('user_nombre') %}
+            <div class="relative inline-block text-left">
+                <button onclick="toggleMenuUsuario()" class="flex items-center space-x-2 bg-emerald-700 hover:bg-emerald-800 px-3 py-1.5 rounded-lg text-sm transition">
+                    <span>👤 {{ session.get('user_nombre') }}</span>
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </button>
+
+                <!-- Menú Desplegable -->
+                <div id="dropdown-usuario" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg py-1 border border-gray-100 z-50 text-gray-700 text-sm">
+                    <a href="#" onclick="abrirModalPerfil()" class="block px-4 py-2 hover:bg-gray-50 font-medium">⚙️ Actualizar Datos</a>
+                    <a href="/login" class="block px-4 py-2 hover:bg-gray-50 text-gray-600">🔄 Cambiar de Usuario</a>
+                    <hr class="my-1 border-gray-100">
+                    <a href="/logout" class="block px-4 py-2 hover:bg-red-50 text-red-600 font-semibold">🚪 Cerrar Sesión</a>
+                </div>
             </div>
-            <span class="text-sm bg-emerald-700 px-3 py-1 rounded-full">Sprint 4 - Beta</span>
+            {% else %}
+            <div class="space-x-2 text-sm">
+                <a href="/login" class="hover:underline">Iniciar Sesión</a>
+                <a href="/registro" class="bg-emerald-700 px-3 py-1.5 rounded-lg font-medium hover:bg-emerald-800 transition">Registrarse</a>
+            </div>
+            {% endif %}
         </div>
     </nav>
 
@@ -31,6 +51,23 @@
     <footer class="text-center py-6 text-gray-500 text-sm border-t border-gray-200 mt-12">
         EcoWatt Control de Energía &copy; 2026
     </footer>
+
+    <script>
+        function toggleMenuUsuario() {
+            const menu = document.getElementById('dropdown-usuario');
+            menu.classList.toggle('hidden');
+        }
+
+        // Cierra el menú al hacer clic fuera
+        window.onclick = function(e) {
+            if (!e.target.closest('.relative')) {
+                const menu = document.getElementById('dropdown-usuario');
+                if (menu && !menu.classList.contains('hidden')) {
+                    menu.classList.add('hidden');
+                }
+            }
+        }
+    </script>
 
     {% block scripts %}{% endblock %}
 </body>
