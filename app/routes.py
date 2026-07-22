@@ -1,3 +1,4 @@
+from flask import Blueprint, render_template
 from flask import Blueprint, jsonify, request
 from app.database import db
 from datetime import datetime
@@ -5,7 +6,8 @@ from datetime import datetime
 main = Blueprint('main', __name__)
 
 @main.route('/')
-def index():
+def dashboard():
+    return render_template('dashboard.html')
     status_db = "Desconectado"
     if db is not None:
         try:

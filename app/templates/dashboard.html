@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - EcoWatt{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex justify-between items-center">
+    <div>
+        <h2 class="text-2xl font-bold text-gray-800">Panel de Control de Energía</h2>
+        <p class="text-gray-600">Visualiza tu consumo, registra lecturas y gestiona tu historial.</p>
+    </div>
+</div>
+
+<!-- KPIs -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <p class="text-sm font-medium text-gray-500">Consumo Mes Actual</p>
+        <h3 id="kpi-consumo" class="text-3xl font-extrabold text-emerald-600 mt-2">-- kWh</h3>
+        <p id="kpi-dias" class="text-xs text-gray-400 mt-1">Cargando días...</p>
+    </div>
+
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <p class="text-sm font-medium text-gray-500">Costo Estimado</p>
+        <h3 id="kpi-costo" class="text-3xl font-extrabold text-blue-600 mt-2">$ -- COP</h3>
+        <p class="text-xs text-gray-400 mt-1">Basado en tarifa registrada</p>
+    </div>
+
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <p class="text-sm font-medium text-gray-500">vs. Mes Anterior</p>
+        <h3 id="kpi-variacion" class="text-3xl font-extrabold text-gray-700 mt-2">-- %</h3>
+        <p id="kpi-analisis" class="text-xs text-gray-400 mt-1">Cargando comparación...</p>
+    </div>
+</div>
+
+<!-- Formulario + Gráfico -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+    
+    <!-- Formulario para Registrar Lectura -->
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-1">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">Registrar Lectura</h3>
+        
+        <form id="form-lectura" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Lectura (kWh)</label>
+                <input type="number" step="0.1" id="lectura_kwh" required placeholder="Ej: 980.5"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+                <input type="date" id="fecha" required
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+
+            <button type="submit" 
+                    class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg hover:bg-emerald-700 transition duration-200">
+                Guardar Lectura
+            </button>
+        </form>
+
+        <div id="mensaje-feedback" class="mt-3 text-sm hidden p-2 rounded-lg"></div>
+    </div>
+
+    <!-- Gráfico -->
+    <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
+        <h3 class="text-lg font-bold text-gray-800 mb-4">Evolución de Consumo Mensual</h3>
+        <canvas id="chartConsumo" height="120"></canvas>
+    </div>
+
+</div>
+
+<!-- Tabla de Historial de Lecturas -->
+<div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-bold text-gray-800">Historial de Lecturas</h3>
+        <span class="text-xs text-gray-500">Últimos registros guardados</span>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+            <thead>
+                <tr class="border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                    <th class="py-3 px-4">Fecha</th>
+                    <th class="py-3 px-4">Lectura (kWh)</th>
+                    <th class="py-3 px-4">Consumo Día (kWh)</th>
+                    <th class="py-3 px-4">Costo Día ($ COP)</th>
+                    <th class="py-3 px-4 text-center">Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tabla-lecturas" class="divide-y divide-gray-100 text-sm text-gray-700">
+                <tr>
+                    <td colspan="5" class="py-4 text-center text-gray-400">Cargando historial de lecturas...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let chartInstance = null;
+
+    // Cargar datos del Reporte Mensual (KPIs + Gráfico)
+    async function cargarDashboard() {
+        try {
+            const res = await fetch('/api/reporte/mensual');
+            const data = await res.json();
+
+            if (data.reporte_mensual && data.reporte_mensual.length > 0) {
+                const ultimoMes = data.reporte_mensual[0];
+
+                document.getElementById('kpi-consumo').innerText = `${ultimoMes.total_consumo_kwh} kWh`;
+                document.getElementById('kpi-costo').innerText = `$ ${ultimoMes.total_costo_cop.toLocaleString('es-CO')} COP`;
+                document.getElementById('kpi-dias').innerText = `${ultimoMes.dias_registrados} días registrados este mes`;
+
+                if (ultimoMes.variacion_vs_mes_anterior_pct !== null) {
+                    const varPct = ultimoMes.variacion_vs_mes_anterior_pct;
+                    const elVar = document.getElementById('kpi-variacion');
+                    elVar.innerText = `${varPct > 0 ? '+' : ''}${varPct}%`;
+                    elVar.className = `text-3xl font-extrabold mt-2 ${varPct <= 0 ? 'text-emerald-600' : 'text-red-500'}`;
+                } else {
+                    document.getElementById('kpi-variacion').innerText = 'N/A';
+                }
+                
+                document.getElementById('kpi-analisis').innerText = ultimoMes.analisis;
+
+                renderizarGrafico([...data.reporte_mensual].reverse());
+            }
+        } catch (err) {
+            console.error('Error cargando reporte:', err);
+        }
+    }
+
+    // Cargar Lista de Lecturas en la Tabla
+    async function cargarTablaLecturas() {
+        try {
+            const res = await fetch('/api/lecturas');
+            const data = await res.json();
+            const tbody = document.getElementById('tabla-lecturas');
+
+            if (data.lecturas && data.lecturas.length > 0) {
+                tbody.innerHTML = data.lecturas.map(item => `
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="py-3 px-4 font-medium">${item.fecha}</td>
+                        <td class="py-3 px-4">${item.lectura_kwh} kWh</td>
+                        <td class="py-3 px-4">${item.consumo_dia_kwh !== null ? item.consumo_dia_kwh + ' kWh' : '-'}</td>
+                        <td class="py-3 px-4">${item.costo_dia_cop !== null ? '$ ' + item.costo_dia_cop.toLocaleString('es-CO') : '-'}</td>
+                        <td class="py-3 px-4 text-center">
+                            <button onclick="eliminarLectura('${item.fecha}')" 
+                                    class="text-red-600 hover:text-red-800 font-medium text-xs bg-red-50 hover:bg-red-100 px-2 py-1 rounded transition">
+                                Eliminar
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-gray-400">No hay lecturas registradas.</td></tr>`;
+            }
+        } catch (err) {
+            console.error('Error cargando historial:', err);
+        }
+    }
+
+    // Renderizar Gráfico
+    function renderizarGrafico(reportes) {
+        const labels = reportes.map(r => r.mes);
+        const consumos = reportes.map(r => r.total_consumo_kwh);
+
+        const ctx = document.getElementById('chartConsumo').getContext('2d');
+
+        if (chartInstance) {
+            chartInstance.destroy();
+        }
+
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Consumo (kWh)',
+                    data: consumos,
+                    backgroundColor: '#10b981',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    // Registrar Lectura
+    document.getElementById('form-lectura').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const lectura_kwh = parseFloat(document.getElementById('lectura_kwh').value);
+        const fecha = document.getElementById('fecha').value;
+        const feedback = document.getElementById('mensaje-feedback');
+
+        try {
+            const res = await fetch('/api/lecturas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lectura_kwh, fecha })
+            });
+
+            const result = await res.json();
+
+            if (res.ok) {
+                feedback.className = "mt-3 text-sm p-2 rounded-lg bg-emerald-100 text-emerald-800";
+                feedback.innerText = "¡Lectura registrada correctamente!";
+                feedback.classList.remove('hidden');
+                document.getElementById('form-lectura').reset();
+                document.getElementById('fecha').valueAsDate = new Date();
+                
+                // Actualizar todo
+                cargarDashboard();
+                cargarTablaLecturas();
+            } else {
+                throw new Error(result.error || 'Error al guardar');
+            }
+        } catch (err) {
+            feedback.className = "mt-3 text-sm p-2 rounded-lg bg-red-100 text-red-800";
+            feedback.innerText = err.message;
+            feedback.classList.remove('hidden');
+        }
+    });
+
+    // Eliminar Lectura
+    async function eliminarLectura(fecha) {
+        if (!confirm(`¿Estás seguro de eliminar la lectura del ${fecha}?`)) return;
+
+        try {
+            const res = await fetch(`/api/lecturas?fecha=${fecha}`, { method: 'DELETE' });
+            if (res.ok) {
+                cargarDashboard();
+                cargarTablaLecturas();
+            } else {
+                alert('No se pudo eliminar la lectura.');
+            }
+        } catch (err) {
+            console.error('Error eliminando lectura:', err);
+        }
+    }
+
+    // Inicializar
+    document.getElementById('fecha').valueAsDate = new Date();
+    cargarDashboard();
+    cargarTablaLecturas();
+</script>
+{% endblock %}

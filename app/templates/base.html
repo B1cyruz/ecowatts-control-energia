@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}EcoWatt - Control de Energía{% endblock %}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 font-sans antialiased text-gray-800">
+
+    <!-- Navegación -->
+    <nav class="bg-emerald-600 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <span class="text-2xl">⚡</span>
+                <h1 class="text-xl font-bold tracking-wide">EcoWatt</h1>
+            </div>
+            <span class="text-sm bg-emerald-700 px-3 py-1 rounded-full">Sprint 4 - Beta</span>
+        </div>
+    </nav>
+
+    <!-- Contenido Principal -->
+    <main class="max-w-7xl mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="text-center py-6 text-gray-500 text-sm border-t border-gray-200 mt-12">
+        EcoWatt Control de Energía &copy; 2026
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
