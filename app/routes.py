@@ -5,6 +5,7 @@ from datetime import datetime
 import re
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import render_template, request, jsonify, session, redirect, url_for
+from bson.objectid import ObjectId
 
 main = Blueprint('main', __name__)
 
@@ -291,6 +292,74 @@ def obtener_lecturas():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@main.route('/api/auth/perfil', methods=['GET'])
+def obtener_perfil():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    try:
+        usuario = db.usuarios.find_one({"_id": ObjectId(session['user_id'])})
+        if not usuario:
+            return jsonify({"error": "Usuario no encontrado"}), 404
+
+        return jsonify({
+            "nombre": usuario.get('nombre', ''),
+            "username": usuario.get('username', ''),
+            "email": usuario.get('email', ''),
+            "telefono": usuario.get('telefono', ''),
+            "direccion": usuario.get('direccion', '')
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+# ==========================================
+# RUTAS DE GESTIÓN DE PERFIL DE USUARIO
+# ==========================================
+
+@main.route('/api/auth/perfil', methods=['PUT'])
+def actualizar_perfil():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
+
+    try:
+        data = request.get_json() or {}
+        nombre = data.get('nombre', '').strip()
+        telefono = data.get('telefono', '').strip()
+        direccion = data.get('direccion', '').strip()
+        password = data.get('password', '')
+
+        if not all([nombre, telefono, direccion]):
+            return jsonify({"error": "Nombre, teléfono y dirección son obligatorios."}), 400
+
+        update_fields = {
+            "nombre": nombre,
+            "telefono": telefono,
+            "direccion": direccion
+        }
+
+        # Si el usuario ingresó una nueva contraseña, la validamos e igualamos en hash
+        if password:
+            pattern_especial = r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|`~]'
+            if len(password) < 8 or not re.search(pattern_especial, password):
+                return jsonify({
+                    "error": "La nueva contraseña debe tener al menos 8 caracteres y contener un símbolo especial."
+                }), 400
+            
+            update_fields["password_hash"] = generate_password_hash(password)
+
+        # Actualizar en MongoDB
+        db.usuarios.update_one(
+            {"_id": ObjectId(session['user_id'])},
+            {"$set": update_fields}
+        )
+
+        # Actualizar el nombre en la sesión actual
+        session['user_nombre'] = nombre
+
+        return jsonify({"message": "Perfil actualizado correctamente."}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @main.route('/api/reporte/mensual', methods=['GET'])
 def reporte_mensual():

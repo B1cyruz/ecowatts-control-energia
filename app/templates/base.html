@@ -13,7 +13,7 @@
     <nav class="bg-emerald-600 text-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
             <a href="/" class="flex items-center space-x-2">
-                <span class="text-2xl">⚡</span>
+                <span class="text-4xl">⚡</span>
                 <h1 class="text-xl font-bold tracking-wide">EcoWatt</h1>
             </a>
 
@@ -49,7 +49,7 @@
 
     <!-- Footer -->
     <footer class="text-center py-6 text-gray-500 text-sm border-t border-gray-200 mt-12">
-        EcoWatt Control de Energía &copy; 2026
+        EcoWatt Control de Energía © Copyright 2026 - Todos los derechos reservados.
     </footer>
 
     <script>
@@ -67,8 +67,115 @@
                 }
             }
         }
+        async function abrirModalPerfil() {
+    // Cerrar menú desplegable
+    const menu = document.getElementById('dropdown-usuario');
+    if (menu) menu.classList.add('hidden');
+
+    try {
+        // Cargar datos actuales del usuario desde el backend
+        const res = await fetch('/api/auth/perfil');
+        if (!res.ok) throw new Error('No se pudieron obtener los datos.');
+
+        const usuario = await res.json();
+        document.getElementById('perfil_nombre').value = usuario.nombre || '';
+        document.getElementById('perfil_telefono').value = usuario.telefono || '';
+        document.getElementById('perfil_direccion').value = usuario.direccion || '';
+        document.getElementById('perfil_password').value = '';
+
+        document.getElementById('modal-perfil').classList.remove('hidden');
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+function cerrarModalPerfil() {
+    document.getElementById('modal-perfil').classList.add('hidden');
+    document.getElementById('alerta-perfil').classList.add('hidden');
+}
+
+// Enviar actualización de perfil
+document.getElementById('form-perfil').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const alerta = document.getElementById('alerta-perfil');
+    alerta.classList.add('hidden');
+
+    const payload = {
+        nombre: document.getElementById('perfil_nombre').value.trim(),
+        telefono: document.getElementById('perfil_telefono').value.trim(),
+        direccion: document.getElementById('perfil_direccion').value.trim(),
+        password: document.getElementById('perfil_password').value
+    };
+
+    try {
+        const res = await fetch('/api/auth/perfil', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            alerta.className = "mb-4 p-3 rounded-lg text-sm bg-emerald-100 text-emerald-800";
+            alerta.innerText = "¡Perfil actualizado con éxito! Recargando...";
+            alerta.classList.remove('hidden');
+            setTimeout(() => window.location.reload(), 1200);
+        } else {
+            throw new Error(data.error || 'Error al actualizar perfil');
+        }
+    } catch (err) {
+        alerta.className = "mb-4 p-3 rounded-lg text-sm bg-red-100 text-red-800";
+        alerta.innerText = err.message;
+        alerta.classList.remove('hidden');
+    }
+});
     </script>
 
     {% block scripts %}{% endblock %}
+    <!-- Modal Actualizar Datos de Perfil -->
+<div id="modal-perfil" class="hidden fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center z-50">
+    <div class="bg-white p-6 rounded-xl shadow-lg max-w-md w-full mx-4">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2">
+            <h3 class="text-lg font-bold text-gray-800">Actualizar Mi Perfil</h3>
+            <button onclick="cerrarModalPerfil()" class="text-gray-400 hover:text-gray-600 font-bold">&times;</button>
+        </div>
+
+        <div id="alerta-perfil" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+        <form id="form-perfil" class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Nombre Completo</label>
+                <input type="text" id="perfil_nombre" required
+                       class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Teléfono</label>
+                    <input type="tel" id="perfil_telefono" required
+                           class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Dirección</label>
+                    <input type="text" id="perfil_direccion" required
+                           class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                </div>
+            </div>
+
+            <div class="border-t border-gray-100 pt-3">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Nueva Contraseña (Opcional)</label>
+                <input type="password" id="perfil_password" placeholder="Dejar en blanco para conservar la actual"
+                       class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                <p class="text-[10px] text-gray-400 mt-1">Si la cambias, debe tener mínimo 8 caracteres y un símbolo especial.</p>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" onclick="cerrarModalPerfil()" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+                <button type="submit" class="px-4 py-2 text-sm bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700">Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
 </body>
 </html>
