@@ -29,7 +29,10 @@ def dashboard():
         "database": status_db
     })
 
-# --- VISTAS DE AUTENTICACIÓN ---
+# ==========================================
+# VISTAS DE AUTENTICACION
+# ==========================================
+
 @main.route('/registro')
 def vista_registro():
     return render_template('registro.html')
@@ -43,7 +46,10 @@ def logout():
     session.clear()
     return redirect(url_for('main.vista_login'))
 
-# --- ENDPOINTS API DE AUTENTICACIÓN ---
+# ==========================================
+# ENDPOINTS API DE AUTENTICACIÓN
+# ==========================================
+
 @main.route('/api/auth/registro', methods=['POST'])
 def api_registro():
     try:
@@ -92,7 +98,9 @@ def api_registro():
 def vista_recuperar():
     return render_template('recuperar.html')
 
-# Endpoint API para solicitar recuperación por correo
+# ==========================================
+# ENDPOINT API DE RECUPERACIÓN DE CONTRASEÑA Y LOGIN
+# ==========================================
 
 @main.route('/api/auth/recuperar', methods=['POST'])
 def api_recuperar_password():

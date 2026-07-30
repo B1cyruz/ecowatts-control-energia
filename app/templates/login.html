@@ -17,20 +17,27 @@
         </div>
 
         <div>
-            <label class="block text-xs font-semibold text-gray-600 mb-1">Contraseña</label>
-            <input type="password" id="password" required placeholder="••••••••"
-                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Contraseña</label>
+    <div class="relative">
+        <input type="password" id="password" required placeholder="••••••••"
+               class="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+        
+    <div class="show-password-container">
+                <input type="checkbox" id="togglePassword">
+            <label for="togglePassword">Mostrar contraseña</label>
+    </div>
+    </div>
+    
+    <div class="flex justify-between items-center text-xs mt-1">
+        <span class="text-gray-400">¿Problemas para acceder?</span>
+        <a href="/recuperar" class="text-emerald-600 hover:underline font-medium">Olvidé mi contraseña o usuario</a>
+    </div>
         </div>
         
-        <div class="flex justify-between items-center text-xs mt-1">
-            <span class="text-gray-400">¿Problemas para acceder?</span>
-            <a href="/recuperar" class="text-emerald-600 hover:underline font-medium">Olvidé mi contraseña o usuario</a>
-        </div>
-
         <button type="submit" class="w-full bg-emerald-600 text-white font-medium py-2 rounded-lg hover:bg-emerald-700 transition">
             Ingresar
         </button>
-    </form>
+        </form>
 
     <div class="mt-6 border-t border-gray-100 pt-4 text-center">
         <p class="text-xs text-gray-500">¿No tienes cuenta? 
@@ -38,6 +45,7 @@
         </p>
     </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
@@ -75,5 +83,12 @@
             alerta.classList.remove('hidden');
         }
     });
+const passwordInput = document.getElementById('password');
+const togglePassword = document.getElementById('togglePassword');
+
+togglePassword.addEventListener('change', function () {
+  // Si está marcado cambia a "text", si no vuelve a "password"
+  passwordInput.type = this.checked ? 'text' : 'password';
+});
 </script>
 {% endblock %}

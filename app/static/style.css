@@ -1,0 +1,23 @@
+.show-password-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  margin-bottom: 12px;
+}
+
+.show-password-container input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: #009660; /* Verde EcoWatt */
+}
+
+.show-password-container label {
+  font-family: inherit;      /* Hereda la fuente de tu app */
+  font-size: 0.825rem;       /* Tamaño sutil igual al de "¿Problemas para acceder?" */
+  font-weight: 400;
+  color: #888888;            /* Tono gris secundario */
+  cursor: pointer;
+  user-select: none;
+}
