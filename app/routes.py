@@ -1,5 +1,7 @@
 from flask import Blueprint, render_template
 from flask import Blueprint, jsonify, request
+from flask import Blueprint, redirect, url_for, session, flash
+from app import oauth
 from app.database import db
 from datetime import datetime
 import re
@@ -7,7 +9,48 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import render_template, request, jsonify, session, redirect, url_for
 from bson.objectid import ObjectId
 
+
+
 main = Blueprint('main', __name__)
+
+@main.route('/login/google')
+def login_google():
+    redirect_uri = url_for('main.google_callback', _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+@main.route('/login/google/callback')
+def google_callback():
+    token = oauth.google.authorize_access_token()
+    user_info = token.get('userinfo')
+    
+    if not user_info:
+        flash('Error al autenticar con Google.', 'danger')
+        return redirect(url_for('main.login'))
+    
+    google_id = user_info['sub']
+    email = user_info['email']
+    name = user_info.get('name', '')
+
+    # Buscamos en MongoDB
+    users_collection = db['users']
+    user = users_collection.find_one({'$or': [{'email': email}, {'google_id': google_id}]})
+
+    if not user:
+        new_user = {
+            'name': name,
+            'email': email,
+            'google_id': google_id,
+            'auth_provider': 'google'
+        }
+        users_collection.insert_one(new_user)
+        user = new_user
+
+    session['user_id'] = str(user.get('_id', google_id))
+    session['user_email'] = email
+    session['user_name'] = name
+
+    flash(f'¡Bienvenido {name}!', 'success')
+    return redirect(url_for('main.dashboard'))
 
 @main.route('/')
 def dashboard():
