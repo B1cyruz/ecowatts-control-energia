@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template
 from flask import Blueprint, jsonify, request
+from flask import request, jsonify, session
 from flask import Blueprint, redirect, url_for, session, flash
 from app import oauth
 from app.database import db
@@ -241,7 +242,6 @@ def guardar_tarifa():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 @main.route('/api/tarifas', methods=['GET'])
 def obtener_tarifa_actual():
     try:
@@ -284,14 +284,22 @@ def registrar_lectura():
     try:
         data = request.get_json() or {}
         lectura_actual = float(data.get('lectura_kwh', 0))
-        fecha_str = data.get('fecha', datetime.now().strftime("%Y-%m-%d"))
+        
+        # Fecha ingresada o la actual si no se proporciona
+        hoy_str = datetime.now().strftime("%Y-%m-%d")
+        fecha_str = data.get('fecha', hoy_str)
         usuario_id = session['user_id']
 
-        # 1. Obtener la tarifa configurada
-        tarifa_doc = db.tarifas.find_one({"estrato": 3})
-        tarifa_vigente = tarifa_doc['tarifa_kwh'] if tarifa_doc else 850.0  # Valor base COP/kWh
+        # ----------------------------------------------------
+        # VALIDACIÓN 1: No permitir fechas futuras
+        # ----------------------------------------------------
+        if fecha_str > hoy_str:
+            return jsonify({"error": f"No puedes registrar lecturas con fecha futura ({fecha_str})."}), 400
 
-        # 2. Buscar la lectura anterior del MISMO usuario
+        # ----------------------------------------------------
+        # VALIDACIÓN 2: Lectura Progresiva (Hacia Atrás)
+        # Buscar la lectura previa más cercana en el tiempo (fecha < fecha_str)
+        # ----------------------------------------------------
         lectura_anterior = db.lecturas.find_one(
             {
                 "usuario_id": usuario_id,
@@ -300,31 +308,79 @@ def registrar_lectura():
             sort=[("fecha", -1)]
         )
 
-        consumo_dia = 0.0
         if lectura_anterior and 'lectura_kwh' in lectura_anterior:
-            consumo_dia = max(0.0, lectura_actual - lectura_anterior['lectura_kwh'])
+            val_anterior = float(lectura_anterior['lectura_kwh'])
+            if lectura_actual < val_anterior:
+                return jsonify({
+                    "error": f"La lectura ({lectura_actual} kWh) no puede ser menor a la lectura previa ({val_anterior} kWh del {lectura_anterior['fecha']})."
+                }), 400
+            consumo_dia = lectura_actual - val_anterior
+        else:
+            # Es el primer registro histórico del usuario
+            consumo_dia = 0.0
 
-        costo_dia = round(consumo_dia * tarifa_vigente, 2)
-
-        doc = {
-            "usuario_id": usuario_id,  # <-- Vinculación clave al usuario
-            "fecha": fecha_str,
-            "lectura_kwh": lectura_actual,
-            "consumo_dia_kwh": round(consumo_dia, 2),
-            "costo_dia_cop": costo_dia,
-            "tarifa_aplicada": tarifa_vigente,
-            "creado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-
-        # Actualizar o insertar según la fecha Y el usuario
-        db.lecturas.replace_one(
-            {"usuario_id": usuario_id, "fecha": fecha_str}, 
-            doc, 
-            upsert=True
+        # ----------------------------------------------------
+        # VALIDACIÓN 3: Lectura Progresiva (Hacia Adelante)
+        # Si se corrige una fecha pasada, la nueva lectura no puede superar a una lectura posterior
+        # ----------------------------------------------------
+        lectura_posterior = db.lecturas.find_one(
+            {
+                "usuario_id": usuario_id,
+                "fecha": {"$gt": fecha_str}
+            },
+            sort=[("fecha", 1)]
         )
 
+        if lectura_posterior and 'lectura_kwh' in lectura_posterior:
+            val_posterior = float(lectura_posterior['lectura_kwh'])
+            if lectura_actual > val_posterior:
+                return jsonify({
+                    "error": f"La lectura ({lectura_actual} kWh) no puede ser mayor a la lectura posterior registrada ({val_posterior} kWh del {lectura_posterior['fecha']})."
+                }), 400
+
+# ----------------------------------------------------
+        # OBTENER / ACTUALIZAR TARIFA
+        # ----------------------------------------------------
+        tarifa_ingresada = data.get('tarifa_kwh')
+
+        if tarifa_ingresada and float(tarifa_ingresada) > 0:
+            tarifa_vigente = float(tarifa_ingresada)
+            # Guardamos la nueva tarifa para el usuario
+            db.tarifas.replace_one(
+                {"usuario_id": usuario_id},
+                {
+                    "usuario_id": usuario_id,
+                    "tarifa_kwh": tarifa_vigente,
+                    "actualizado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                },
+                upsert=True
+            )
+        else:
+            # Si no ingresó una tarifa en la lectura, buscamos la que tenga guardada
+            tarifa_doc = db.tarifas.find_one({"usuario_id": usuario_id}) or db.tarifas.find_one({"estrato": 3})
+            tarifa_vigente = tarifa_doc.get('tarifa_kwh', 850.0) if tarifa_doc else 850.0
+
+        # Ahora sí calculamos el costo diario con la tarifa_vigente correcta
+        costo_dia = round(consumo_dia * tarifa_vigente, 2)
+
+        # ----------------------------------------------------
+        # EFECTO EN CADENA: Recalcular el día posterior si existía
+        # ----------------------------------------------------
+        if lectura_posterior:
+            val_pos_kwh = float(lectura_posterior['lectura_kwh'])
+            nuevo_consumo_pos = max(0.0, val_pos_kwh - lectura_actual)
+            nuevo_costo_pos = round(nuevo_consumo_pos * lectura_posterior.get('tarifa_aplicada', tarifa_vigente), 2)
+            
+            db.lecturas.update_one(
+                {"_id": lectura_posterior['_id']},
+                {"$set": {
+                    "consumo_dia_kwh": round(nuevo_consumo_pos, 2),
+                    "costo_dia_cop": nuevo_costo_pos
+                }}
+            )
+
         doc.pop('_id', None)
-        return jsonify({"message": "Lectura registrada con éxito", "data": doc}), 201
+        return jsonify({"message": "Lectura registrada correctamente", "data": doc}), 201
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -419,8 +475,8 @@ def reporte_mensual():
 
     try:
         usuario_id = session['user_id']
-        
-        # Agregación en MongoDB filtrando por usuario_id
+
+        # 1. Agregación en MongoDB
         pipeline = [
             {"$match": {"usuario_id": usuario_id}},
             {
@@ -444,10 +500,11 @@ def reporte_mensual():
         reportes_db = list(db.lecturas.aggregate(pipeline))
         reporte = []
 
+        # 2. Bucle para procesar cada mes
         for i, doc in enumerate(reportes_db):
             total_kwh = round(doc['total_consumo_kwh'], 2)
             total_cop = round(doc['total_costo_cop'], 2)
-            
+
             variacion_pct = None
             mensaje_comparativo = "Sin datos de mes anterior para comparar"
 
@@ -471,7 +528,15 @@ def reporte_mensual():
                 "analisis": mensaje_comparativo
             })
 
-        return jsonify({"reporte_mensual": reporte}), 200
+        # 3. Obtener tarifa (DENTRO DEL TRY, FUERA DEL FOR)
+        tarifa_doc = db.tarifas.find_one({"usuario_id": usuario_id}) or db.tarifas.find_one({"estrato": 3})
+        tarifa_val = float(tarifa_doc.get('tarifa_kwh', 850.0)) if tarifa_doc else 850.0
+
+        # 4. Retornar respuesta (DENTRO DEL TRY)
+        return jsonify({
+            "reporte_mensual": reporte,
+            "tarifa_vigente": tarifa_val
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
