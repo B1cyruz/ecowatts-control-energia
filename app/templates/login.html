@@ -3,7 +3,41 @@
 {% block title %}Iniciar Sesión - EcoWatt{% endblock %}
 
 {% block content %}
-<div class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100 my-12">
+<body class="h-full font-sans antialiased text-slate-800">
+    <div class="min-h-screen flex flex-col lg:flex-row bg-gradient-to-br from-emerald-50 via-emerald-100 to-teal-50">
+    
+    <!-- LADO IZQUIERDO: Banner de Marca (Nuevo) -->
+    <div class="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-emerald-800 via-emerald-700 to-teal-900 text-white p-12 flex-col justify-between relative overflow-hidden rounded-lg shadow-lg">
+    <!-- Elementos decorativos de fondo -->
+    <div class="absolute -top-22 -left-20 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-22 -right-24 w-96 h-96 bg-teal-400/20 rounded-full blur-3xl pointer-events-none"></div>
+
+    <!-- Mensaje Central -->
+    <div class="relative z-10 max-w-lg my-auto space-y-10">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xl font-semibold uppercase tracking-wider">
+        <span>🌱 Control Inteligente de Energía</span>
+        </div>
+        <h1 class="text-xl xl:text-5xl font-extrabold leading-tight text-white">
+        Toma el control de tu consumo eléctrico día a día.
+        </h1>
+        <p class="text-emerald-100/80 text-lg font-normal">
+        Monitorea tus lecturas kWh, calcula tus costos en tiempo real según tu tarifa y evita sorpresas en tu factura.
+        </p>
+
+        <!-- Tarjeta de Métrica Flotante -->
+        <div class="p-4 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center gap-4 shadow-xl">
+        <div class="w-12 h-12 rounded-xl bg-emerald-400/20 flex items-center justify-center text-2xl text-emerald-300">
+            📊
+        </div>
+        <div>
+            <p class="text-xs font-medium text-emerald-200">Ahorro Promedio Estimado</p>
+            <p class="text-xl font-bold text-white">15% a 25% <span class="text-xs font-normal text-emerald-200">mensual</span></p>
+        </div>
+        </div>
+    </div>
+    </div>
+    
+<div class="max-w-md mx-auto bg-white p-8 rounded-lg shadow-sm border border-gray-100 my-auto lg:w-1/2 ">
     <h2 class="text-2xl font-bold text-gray-800 text-center mb-2">Iniciar Sesión</h2>
     <p class="text-xs text-gray-500 text-center mb-6">Ingresa tus credenciales para acceder a EcoWatt.</p>
 
@@ -13,14 +47,14 @@
         <div>
             <label class="block text-xs font-semibold text-gray-600 mb-1">Usuario o Correo Electrónico</label>
             <input type="text" id="login_id" required placeholder="usuario o correo@ejemplo.com"
-                   class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
         </div>
 
         <div>
     <label class="block text-xs font-semibold text-gray-600 mb-1">Contraseña</label>
     <div class="relative">
         <input type="password" id="password" required placeholder="••••••••"
-               class="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
+            class="w-full px-3 py-2 pr-10 text-sm border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500">
         
     <div class="show-password-container">
                 <input type="checkbox" id="togglePassword">
@@ -59,6 +93,8 @@
         </p>
     </div>
 </div>
+    </div>
+</body>
 
 {% endblock %}
 
