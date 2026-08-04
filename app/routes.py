@@ -345,7 +345,6 @@ def registrar_lectura():
 
         if tarifa_ingresada and float(tarifa_ingresada) > 0:
             tarifa_vigente = float(tarifa_ingresada)
-            # Guardamos la nueva tarifa para el usuario
             db.tarifas.replace_one(
                 {"usuario_id": usuario_id},
                 {
@@ -356,31 +355,31 @@ def registrar_lectura():
                 upsert=True
             )
         else:
-            # Si no ingresó una tarifa en la lectura, buscamos la que tenga guardada
             tarifa_doc = db.tarifas.find_one({"usuario_id": usuario_id}) or db.tarifas.find_one({"estrato": 3})
-            tarifa_vigente = tarifa_doc.get('tarifa_kwh', 850.0) if tarifa_doc else 850.0
+            tarifa_vigente = tarifa_doc.get('tarifa_kwh', 795.0) if tarifa_doc else 795.0
 
-        # Ahora sí calculamos el costo diario con la tarifa_vigente correcta
+        # 2. CALCULAR COSTO
         costo_dia = round(consumo_dia * tarifa_vigente, 2)
 
-        # ----------------------------------------------------
-        # EFECTO EN CADENA: Recalcular el día posterior si existía
-        # ----------------------------------------------------
-        if lectura_posterior:
-            val_pos_kwh = float(lectura_posterior['lectura_kwh'])
-            nuevo_consumo_pos = max(0.0, val_pos_kwh - lectura_actual)
-            nuevo_costo_pos = round(nuevo_consumo_pos * lectura_posterior.get('tarifa_aplicada', tarifa_vigente), 2)
-            
-            db.lecturas.update_one(
-                {"_id": lectura_posterior['_id']},
-                {"$set": {
-                    "consumo_dia_kwh": round(nuevo_consumo_pos, 2),
-                    "costo_dia_cop": nuevo_costo_pos
-                }}
-            )
+        # 3. CONSTRUIR EL DICCIONARIO 'doc' (¡AQUÍ SE DEFINE 'doc'!)
+        doc = {
+            "usuario_id": usuario_id,
+            "fecha": fecha_str,
+            "lectura_kwh": lectura_actual,
+            "consumo_dia_kwh": round(consumo_dia, 2),
+            "costo_dia_cop": costo_dia,
+            "tarifa_aplicada": tarifa_vigente,
+            "creado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
 
-        doc.pop('_id', None)
-        return jsonify({"message": "Lectura registrada correctamente", "data": doc}), 201
+        # 4. GUARDAR EN LA BASE DE DATOS
+        db.lecturas.replace_one(
+            {"usuario_id": usuario_id, "fecha": fecha_str},
+            doc,
+            upsert=True
+        )
+
+        return jsonify({"message": "Lectura registrada exitosamente", "lectura": doc}), 201
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
