@@ -9,8 +9,10 @@ import re
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import render_template, request, jsonify, session, redirect, url_for
 from bson.objectid import ObjectId
-
-
+from flask import request, jsonify, url_for
+from flask_mail import Message
+from itsdangerous import URLSafeTimedSerializer
+from app import mail
 
 main = Blueprint('main', __name__)
 
@@ -137,7 +139,6 @@ def api_registro():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Vista de recuperación
 @main.route('/recuperar')
 def vista_recuperar():
     return render_template('recuperar.html')
@@ -145,6 +146,10 @@ def vista_recuperar():
 # ==========================================
 # ENDPOINT API DE RECUPERACIÓN DE CONTRASEÑA Y LOGIN
 # ==========================================
+
+def obtener_serializador():
+    from flask import current_app
+    return URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
 
 @main.route('/api/auth/recuperar', methods=['POST'])
 def api_recuperar_password():
@@ -157,19 +162,41 @@ def api_recuperar_password():
 
         usuario = db.usuarios.find_one({"email": email})
 
-        # Por seguridad no revelamos si el correo existe o no, pero si existe mostramos su usuario
         if usuario:
-            # Aquí se integrará el envío de correo SMTP con Flask-Mail
-            return jsonify({
-                "message": f"Si el correo existe, enviamos un enlace de recuperación. Tu nombre de usuario registrado es: '{usuario['username']}'."
-            }), 200
-        else:
-            return jsonify({
-                "message": "Si el correo existe en nuestro sistema, hemos enviado las instrucciones."
-            }), 200
+            # 1. Generar token con expiración (valido por 30 mins)
+            s = obtener_serializador()
+            token = s.dumps(email, salt='recuperar-password-salt')
+
+            # 2. Crear enlace de restablecimiento
+            # Apunta a la vista frontend donde el usuario ingresa la nueva clave
+            enlace_reset = url_for('main.vista_reset_password', token=token, _external=True)
+
+            # 3. Enviar correo vía SMTP
+            msg = Message(
+                subject="Restablecimiento de Contraseña - EcoWatt",
+                recipients=[email]
+            )
+            msg.body = f"""Hola {usuario.get('username', 'Usuario')},
+
+Has solicitado restablecer tu contraseña en EcoWatt. 
+Haz clic en el siguiente enlace para crear una nueva contraseña:
+
+{enlace_reset}
+
+Este enlace expira en 30 minutos. Si no solicitaste este cambio, ignora este correo.
+
+Atentamente,
+Equipo de EcoWatt.
+"""
+            mail.send(msg)
+
+        # Respuesta idéntica por seguridad (previene enumeration attacks)
+        return jsonify({
+            "message": "Si el correo existe en nuestro sistema, hemos enviado las instrucciones de recuperación."
+        }), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Error al procesar el envío: {str(e)}"}), 500
 
 @main.route('/api/auth/login', methods=['POST'])
 def api_login():
@@ -195,7 +222,32 @@ def api_login():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@main.route('/api/auth/restablecer', methods=['POST'])
+def api_restablecer_password():
+    try:
+        data = request.get_json() or {}
+        token = data.get('token')
+        nueva_password = data.get('password')
 
+        if not token or not nueva_password:
+            return jsonify({"error": "Datos incompletos."}), 400
+
+        s = obtener_serializador()
+        email = s.loads(token, salt='recuperar-password-salt', max_age=1800)
+
+        password_hashed = generate_password_hash(nueva_password) # usando werkzeug.security
+
+        db.usuarios.update_one(
+            {"email": email},
+            {"$set": {"password": password_hashed}}
+        )
+
+        return jsonify({"message": "Contraseña actualizada con éxito."}), 200
+
+    except Exception:
+        return jsonify({"error": "El enlace es inválido o ha expirado."}), 400
+    
 # ==========================================
 # RUTAS DE GESTIÓN DE TARIFAS DINÁMICAS
 # ==========================================
@@ -260,7 +312,7 @@ def obtener_tarifa_actual():
         if not tarifa_doc:
             tarifa_doc = db.tarifas.find_one({"estrato": estrato})
 
-        tarifa_kwh = tarifa_doc['tarifa_kwh'] if tarifa_doc else 850.0 # Tarifa base por defecto (COP)
+        tarifa_kwh = tarifa_doc['tarifa_kwh'] if tarifa_doc else 795.0 # Tarifa base por defecto (COP)
 
         return jsonify({
             "estrato": estrato,
@@ -273,7 +325,7 @@ def obtener_tarifa_actual():
         return jsonify({"error": str(e)}), 500
 
 # ==========================================
-# RUTAS API DE LECTURAS (FILTRADAS POR USUARIO)
+# RUTAS API DE LECTURAS
 # ==========================================
 
 @main.route('/api/lecturas', methods=['POST'])
@@ -285,21 +337,14 @@ def registrar_lectura():
         data = request.get_json() or {}
         lectura_actual = float(data.get('lectura_kwh', 0))
         
-        # Fecha ingresada o la actual si no se proporciona
+
         hoy_str = datetime.now().strftime("%Y-%m-%d")
         fecha_str = data.get('fecha', hoy_str)
         usuario_id = session['user_id']
 
-        # ----------------------------------------------------
-        # VALIDACIÓN 1: No permitir fechas futuras
-        # ----------------------------------------------------
         if fecha_str > hoy_str:
             return jsonify({"error": f"No puedes registrar lecturas con fecha futura ({fecha_str})."}), 400
 
-        # ----------------------------------------------------
-        # VALIDACIÓN 2: Lectura Progresiva (Hacia Atrás)
-        # Buscar la lectura previa más cercana en el tiempo (fecha < fecha_str)
-        # ----------------------------------------------------
         lectura_anterior = db.lecturas.find_one(
             {
                 "usuario_id": usuario_id,
@@ -316,13 +361,9 @@ def registrar_lectura():
                 }), 400
             consumo_dia = lectura_actual - val_anterior
         else:
-            # Es el primer registro histórico del usuario
+
             consumo_dia = 0.0
 
-        # ----------------------------------------------------
-        # VALIDACIÓN 3: Lectura Progresiva (Hacia Adelante)
-        # Si se corrige una fecha pasada, la nueva lectura no puede superar a una lectura posterior
-        # ----------------------------------------------------
         lectura_posterior = db.lecturas.find_one(
             {
                 "usuario_id": usuario_id,
@@ -337,10 +378,10 @@ def registrar_lectura():
                 return jsonify({
                     "error": f"La lectura ({lectura_actual} kWh) no puede ser mayor a la lectura posterior registrada ({val_posterior} kWh del {lectura_posterior['fecha']})."
                 }), 400
-
+            
 # ----------------------------------------------------
-        # OBTENER / ACTUALIZAR TARIFA
-        # ----------------------------------------------------
+# OBTENER / ACTUALIZAR TARIFA
+# ----------------------------------------------------
         tarifa_ingresada = data.get('tarifa_kwh')
 
         if tarifa_ingresada and float(tarifa_ingresada) > 0:
@@ -358,10 +399,8 @@ def registrar_lectura():
             tarifa_doc = db.tarifas.find_one({"usuario_id": usuario_id}) or db.tarifas.find_one({"estrato": 3})
             tarifa_vigente = tarifa_doc.get('tarifa_kwh', 795.0) if tarifa_doc else 795.0
 
-        # 2. CALCULAR COSTO
         costo_dia = round(consumo_dia * tarifa_vigente, 2)
 
-        # 3. CONSTRUIR EL DICCIONARIO 'doc' (¡AQUÍ SE DEFINE 'doc'!)
         doc = {
             "usuario_id": usuario_id,
             "fecha": fecha_str,
@@ -372,7 +411,6 @@ def registrar_lectura():
             "creado_el": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
-        # 4. GUARDAR EN LA BASE DE DATOS
         db.lecturas.replace_one(
             {"usuario_id": usuario_id, "fecha": fecha_str},
             doc,
@@ -384,7 +422,31 @@ def registrar_lectura():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@main.route('/api/lecturas', methods=['DELETE'])
+def eliminar_lectura():
+    if 'user_id' not in session:
+        return jsonify({"error": "No autorizado"}), 401
 
+    try:
+        fecha = request.args.get('fecha')
+        if not fecha:
+            return jsonify({"error": "Se requiere la fecha"}), 400
+
+        usuario_id = session['user_id']
+
+        resultado = db.lecturas.delete_one({
+            "usuario_id": usuario_id,
+            "fecha": fecha
+        })
+
+        if resultado.deleted_count > 0:
+            return jsonify({"message": "Lectura eliminada"}), 200
+        else:
+            return jsonify({"error": "No se encontró la lectura"}), 404
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 @main.route('/api/lecturas', methods=['GET'])
 def obtener_lecturas():
     if 'user_id' not in session:
@@ -443,7 +505,6 @@ def actualizar_perfil():
             "direccion": direccion
         }
 
-        # Si el usuario ingresó una nueva contraseña, la validamos e igualamos en hash
         if password:
             pattern_especial = r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|`~]'
             if len(password) < 8 or not re.search(pattern_especial, password):
@@ -453,13 +514,11 @@ def actualizar_perfil():
             
             update_fields["password_hash"] = generate_password_hash(password)
 
-        # Actualizar en MongoDB
         db.usuarios.update_one(
             {"_id": ObjectId(session['user_id'])},
             {"$set": update_fields}
         )
 
-        # Actualizar el nombre en la sesión actual
         session['user_nombre'] = nombre
 
         return jsonify({"message": "Perfil actualizado correctamente."}), 200
@@ -475,7 +534,6 @@ def reporte_mensual():
     try:
         usuario_id = session['user_id']
 
-        # 1. Agregación en MongoDB
         pipeline = [
             {"$match": {"usuario_id": usuario_id}},
             {
@@ -499,7 +557,6 @@ def reporte_mensual():
         reportes_db = list(db.lecturas.aggregate(pipeline))
         reporte = []
 
-        # 2. Bucle para procesar cada mes
         for i, doc in enumerate(reportes_db):
             total_kwh = round(doc['total_consumo_kwh'], 2)
             total_cop = round(doc['total_costo_cop'], 2)
@@ -527,7 +584,6 @@ def reporte_mensual():
                 "analisis": mensaje_comparativo
             })
 
-        # 3. Obtener tarifa (DENTRO DEL TRY, FUERA DEL FOR)
         tarifa_doc = db.tarifas.find_one({"usuario_id": usuario_id}) or db.tarifas.find_one({"estrato": 3})
         tarifa_val = float(tarifa_doc.get('tarifa_kwh', 850.0)) if tarifa_doc else 850.0
 
