@@ -139,13 +139,12 @@ def api_registro():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@main.route('/recuperar')
-def vista_recuperar():
-    return render_template('recuperar.html')
-
 # ==========================================
 # ENDPOINT API DE RECUPERACIÓN DE CONTRASEÑA Y LOGIN
 # ==========================================
+@main.route('/recuperar')
+def vista_recuperar():
+    return render_template('recuperar.html')
 
 def obtener_serializador():
     from flask import current_app
@@ -222,7 +221,7 @@ def api_login():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
 @main.route('/api/auth/restablecer', methods=['POST'])
 def api_restablecer_password():
     try:
@@ -236,18 +235,19 @@ def api_restablecer_password():
         s = obtener_serializador()
         email = s.loads(token, salt='recuperar-password-salt', max_age=1800)
 
-        password_hashed = generate_password_hash(nueva_password) # usando werkzeug.security
+        password_hashed = generate_password_hash(nueva_password)
 
         db.usuarios.update_one(
             {"email": email},
             {"$set": {"password": password_hashed}}
         )
 
-        return jsonify({"message": "Contraseña actualizada con éxito."}), 200
+        return jsonify({"message": "Contraseña actualizada exitosamente."}), 200
 
     except Exception:
         return jsonify({"error": "El enlace es inválido o ha expirado."}), 400
     
+
 # ==========================================
 # RUTAS DE GESTIÓN DE TARIFAS DINÁMICAS
 # ==========================================
