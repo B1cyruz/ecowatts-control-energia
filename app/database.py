@@ -18,9 +18,3 @@ client = MongoClient(
 )
 
 db = client.get_database("ecowatts")
-
-try:
-    client.server_info()
-    print("Conexión exitosa a MongoDB Atlas")
-except Exception as e:
-    print(f"Error de conexión a MongoDB: {e}")
