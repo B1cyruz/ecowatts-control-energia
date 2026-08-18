@@ -237,18 +237,26 @@
 
         const result = await res.json();
 
-        if (res.ok) {
-        feedback.className = "mt-3 text-sm p-2 rounded-lg bg-emerald-100 text-emerald-800";
-        feedback.innerText = "¡Lectura y tarifa registradas correctamente!";
-        feedback.classList.remove('hidden');
-        document.getElementById('form-lectura').reset();
-        document.getElementById('fecha').valueAsDate = new Date();
+        function obtenerFechaLocal() {
+            const d = new Date();
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
 
-        // Actualizar todo  
-        cargarDashboard();
-        cargarTablaLecturas();
+        if (res.ok) {
+            feedback.className = "mt-3 text-sm p-2 rounded-lg bg-emerald-100 text-emerald-800";
+            feedback.innerText = "¡Lectura y tarifa registradas correctamente!";
+            feedback.classList.remove('hidden');
+            document.getElementById('form-lectura').reset();
+            document.getElementById('fecha').value = obtenerFechaLocal();
+
+            // Actualizar todo  
+            cargarDashboard();
+            cargarTablaLecturas();
         } else {
-        throw new Error(result.error || 'Error al guardar');
+            throw new Error(result.error || 'Error al guardar');
         }
     } catch (err) {
         feedback.className = "mt-3 text-sm p-2 rounded-lg bg-red-100 text-red-800";
@@ -274,8 +282,16 @@
         }
     }
 
+    function obtenerFechaLocal() {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
     // Inicializar
-    document.getElementById('fecha').valueAsDate = new Date();
+    document.getElementById('fecha').value = obtenerFechaLocal();
     cargarDashboard();
     cargarTablaLecturas();
 </script>

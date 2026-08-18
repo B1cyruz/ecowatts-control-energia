@@ -1,20 +1,17 @@
-from flask import Blueprint, render_template
-from flask import Blueprint, jsonify, request
-from flask import request, jsonify, session
-from flask import Blueprint, redirect, url_for, session, flash
-from app import oauth
-from app.database import db
-from datetime import datetime
 import re
+from datetime import datetime
+from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, flash, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask import render_template, request, jsonify, session, redirect, url_for
 from bson.objectid import ObjectId
-from flask import request, jsonify, url_for
 from flask_mail import Message
 from itsdangerous import URLSafeTimedSerializer
-from app import mail
+from app import oauth, mail
+from app.database import db
 
 main = Blueprint('main', __name__)
+
+def obtener_serializador():
+    return URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
 
 @main.route('/login/google')
 def login_google():
@@ -28,29 +25,31 @@ def google_callback():
     
     if not user_info:
         flash('Error al autenticar con Google.', 'danger')
-        return redirect(url_for('main.login'))
+        return redirect(url_for('main.vista_login'))
     
     google_id = user_info['sub']
     email = user_info['email']
     name = user_info.get('name', '')
 
-    # Buscamos en MongoDB
-    users_collection = db['users']
+    # Buscamos en la colección usuarios de MongoDB
+    users_collection = db['usuarios']
     user = users_collection.find_one({'$or': [{'email': email}, {'google_id': google_id}]})
 
     if not user:
         new_user = {
-            'name': name,
+            'nombre': name,
             'email': email,
             'google_id': google_id,
-            'auth_provider': 'google'
+            'auth_provider': 'google',
+            'creado_el': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        users_collection.insert_one(new_user)
+        res = users_collection.insert_one(new_user)
+        new_user['_id'] = res.inserted_id
         user = new_user
 
-    session['user_id'] = str(user.get('_id', google_id))
+    session['user_id'] = str(user['_id'])
     session['user_email'] = email
-    session['user_name'] = name
+    session['user_nombre'] = name
 
     flash(f'¡Bienvenido {name}!', 'success')
     return redirect(url_for('main.dashboard'))
@@ -60,20 +59,6 @@ def dashboard():
     if 'user_id' not in session:
         return redirect(url_for('main.vista_login'))
     return render_template('dashboard.html')
-
-    status_db = "Desconectado"
-    if db is not None:
-        try:
-            db.command('ping')
-            status_db = "Conectado"
-        except Exception:
-            status_db = "Error"
-
-    return jsonify({
-        "app": "EcoWatts API",
-        "status": "online",
-        "database": status_db
-    })
 
 # ==========================================
 # VISTAS DE AUTENTICACION
@@ -142,60 +127,73 @@ def api_registro():
 # ==========================================
 # ENDPOINT API DE RECUPERACIÓN DE CONTRASEÑA Y LOGIN
 # ==========================================
-@main.route('/recuperar')
-def vista_recuperar():
-    return render_template('recuperar.html')
-
-def obtener_serializador():
-    from flask import current_app
-    return URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
 
 @main.route('/api/auth/recuperar', methods=['POST'])
 def api_recuperar_password():
+    data = request.get_json() or {}
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"error": "Por favor ingresa un correo válido."}), 400   
+
+    usuario = db.usuarios.find_one({"email": email})
+    if not usuario:
+
+        return jsonify({"message": "Si el correo existe, se enviarán las instrucciones."}), 200
+
+    s = obtener_serializador()
+    token = s.dumps(email, salt='recuperar-password-salt')
+
+
+    link = url_for('main.vista_reset_password', token=token, _external=True)
+
+    msg = Message(
+        subject="Recuperación de Contraseña - EcoWatt",
+        recipients=[email],
+        html=f"<p>Para restablecer tu contraseña haz clic aquí: <a href='{link}'>Restablecer Contraseña</a></p>"
+    )
+
+    try:
+        mail.send(msg)
+        return jsonify({"message": "Enlace de recuperación enviado a tu correo."}), 200
+    except Exception as e:
+        return jsonify({"error": f"Error al enviar correo: {str(e)}"}), 500
+
+@main.route('/reset-password/<token>', methods=['GET'])
+def vista_reset_password(token):
+    return render_template('reset_password.html', token=token)
+
+
+@main.route('/api/auth/restablecer', methods=['POST'])
+def api_restablecer_password():
     try:
         data = request.get_json() or {}
-        email = data.get('email', '').strip().lower()
+        token = data.get('token')
+        nueva_password = data.get('password')
 
-        if not email:
-            return jsonify({"error": "Ingresa tu correo electrónico."}), 400
+        if not token or not nueva_password:
+            return jsonify({"error": "Datos incompletos."}), 400
 
-        usuario = db.usuarios.find_one({"email": email})
+        pattern_especial = r'[!@#$%^&*()_+\-=\[\]{};:\'",.<>/?\\|`~]'
+        if len(nueva_password) < 8 or not re.search(pattern_especial, nueva_password):
+            return jsonify({
+                "error": "La contraseña debe tener al menos 8 caracteres y contener al menos un carácter especial."
+            }), 400
 
-        if usuario:
-            # 1. Generar token con expiración (valido por 30 mins)
-            s = obtener_serializador()
-            token = s.dumps(email, salt='recuperar-password-salt')
+        s = obtener_serializador()
+        email = s.loads(token, salt='recuperar-password-salt', max_age=1800)
 
-            # 2. Crear enlace de restablecimiento
-            # Apunta a la vista frontend donde el usuario ingresa la nueva clave
-            enlace_reset = url_for('main.vista_reset_password', token=token, _external=True)
+        password_hashed = generate_password_hash(nueva_password)
 
-            # 3. Enviar correo vía SMTP
-            msg = Message(
-                subject="Restablecimiento de Contraseña - EcoWatt",
-                recipients=[email]
-            )
-            msg.body = f"""Hola {usuario.get('username', 'Usuario')},
+        db.usuarios.update_one(
+            {"email": email},
+            {"$set": {"password_hash": password_hashed}}
+        )
 
-Has solicitado restablecer tu contraseña en EcoWatt. 
-Haz clic en el siguiente enlace para crear una nueva contraseña:
+        return jsonify({"message": "Contraseña actualizada exitosamente."}), 200
 
-{enlace_reset}
-
-Este enlace expira en 30 minutos. Si no solicitaste este cambio, ignora este correo.
-
-Atentamente,
-Equipo de EcoWatt.
-"""
-            mail.send(msg)
-
-        # Respuesta idéntica por seguridad (previene enumeration attacks)
-        return jsonify({
-            "message": "Si el correo existe en nuestro sistema, hemos enviado las instrucciones de recuperación."
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": f"Error al procesar el envío: {str(e)}"}), 500
+    except Exception:
+        return jsonify({"error": "El enlace es inválido o ha expirado."}), 400
 
 @main.route('/api/auth/login', methods=['POST'])
 def api_login():
@@ -221,33 +219,6 @@ def api_login():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-@main.route('/api/auth/restablecer', methods=['POST'])
-def api_restablecer_password():
-    try:
-        data = request.get_json() or {}
-        token = data.get('token')
-        nueva_password = data.get('password')
-
-        if not token or not nueva_password:
-            return jsonify({"error": "Datos incompletos."}), 400
-
-        s = obtener_serializador()
-        email = s.loads(token, salt='recuperar-password-salt', max_age=1800)
-
-        password_hashed = generate_password_hash(nueva_password)
-
-        db.usuarios.update_one(
-            {"email": email},
-            {"$set": {"password": password_hashed}}
-        )
-
-        return jsonify({"message": "Contraseña actualizada exitosamente."}), 200
-
-    except Exception:
-        return jsonify({"error": "El enlace es inválido o ha expirado."}), 400
-    
-
 # ==========================================
 # RUTAS DE GESTIÓN DE TARIFAS DINÁMICAS
 # ==========================================
@@ -466,7 +437,11 @@ def obtener_perfil():
         return jsonify({"error": "No autorizado"}), 401
 
     try:
-        usuario = db.usuarios.find_one({"_id": ObjectId(session['user_id'])})
+        user_id = session['user_id']
+        if not ObjectId.is_valid(user_id):
+            return jsonify({"error": "Identificador de usuario inválido."}), 400
+
+        usuario = db.usuarios.find_one({"_id": ObjectId(user_id)})
         if not usuario:
             return jsonify({"error": "Usuario no encontrado"}), 404
 
@@ -490,6 +465,10 @@ def actualizar_perfil():
         return jsonify({"error": "No autorizado"}), 401
 
     try:
+        user_id = session['user_id']
+        if not ObjectId.is_valid(user_id):
+            return jsonify({"error": "Identificador de usuario inválido."}), 400
+
         data = request.get_json() or {}
         nombre = data.get('nombre', '').strip()
         telefono = data.get('telefono', '').strip()
@@ -515,7 +494,7 @@ def actualizar_perfil():
             update_fields["password_hash"] = generate_password_hash(password)
 
         db.usuarios.update_one(
-            {"_id": ObjectId(session['user_id'])},
+            {"_id": ObjectId(user_id)},
             {"$set": update_fields}
         )
 

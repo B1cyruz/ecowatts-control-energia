@@ -96,39 +96,44 @@ function cerrarModalPerfil() {
 }
 
 // Enviar actualización de perfil
-document.getElementById('form-perfil').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const alerta = document.getElementById('alerta-perfil');
-    alerta.classList.add('hidden');
+document.addEventListener('DOMContentLoaded', () => {
+    const formPerfil = document.getElementById('form-perfil');
+    if (formPerfil) {
+        formPerfil.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const alerta = document.getElementById('alerta-perfil');
+            alerta.classList.add('hidden');
 
-    const payload = {
-        nombre: document.getElementById('perfil_nombre').value.trim(),
-        telefono: document.getElementById('perfil_telefono').value.trim(),
-        direccion: document.getElementById('perfil_direccion').value.trim(),
-        password: document.getElementById('perfil_password').value
-    };
+            const payload = {
+                nombre: document.getElementById('perfil_nombre').value.trim(),
+                telefono: document.getElementById('perfil_telefono').value.trim(),
+                direccion: document.getElementById('perfil_direccion').value.trim(),
+                password: document.getElementById('perfil_password').value
+            };
 
-    try {
-        const res = await fetch('/api/auth/perfil', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            try {
+                const res = await fetch('/api/auth/perfil', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    alerta.className = "mb-4 p-3 rounded-lg text-sm bg-emerald-100 text-emerald-800";
+                    alerta.innerText = "¡Perfil actualizado con éxito! Recargando...";
+                    alerta.classList.remove('hidden');
+                    setTimeout(() => window.location.reload(), 1200);
+                } else {
+                    throw new Error(data.error || 'Error al actualizar perfil');
+                }
+            } catch (err) {
+                alerta.className = "mb-4 p-3 rounded-lg text-sm bg-red-100 text-red-800";
+                alerta.innerText = err.message;
+                alerta.classList.remove('hidden');
+            }
         });
-
-        const data = await res.json();
-
-        if (res.ok) {
-            alerta.className = "mb-4 p-3 rounded-lg text-sm bg-emerald-100 text-emerald-800";
-            alerta.innerText = "¡Perfil actualizado con éxito! Recargando...";
-            alerta.classList.remove('hidden');
-            setTimeout(() => window.location.reload(), 1200);
-        } else {
-            throw new Error(data.error || 'Error al actualizar perfil');
-        }
-    } catch (err) {
-        alerta.className = "mb-4 p-3 rounded-lg text-sm bg-red-100 text-red-800";
-        alerta.innerText = err.message;
-        alerta.classList.remove('hidden');
     }
 });
     </script>
